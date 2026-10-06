@@ -2,7 +2,7 @@
 
 A small 3D OpenGL toy inspired by the new GTA6 trailer: drag a beer bottle around the screen with the mouse,
 throw it, watch it bounce off the walls, and shatter on the floor according to physics. Liquid
-inside the bottle sloshes with bubbles, and a puddle spreads where it lands.
+inside the bottle sloshes with bubbles, and a spills where the beer bottle breaks.
 
 ## Controls
 
