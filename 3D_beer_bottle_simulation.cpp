@@ -19,8 +19,8 @@ float random_number(float min, float max){
 return min + static_cast <float> (rand()) /( static_cast <float> (RAND_MAX/(max-min)));
 }
 
-int width = 2000;
-int height = 2000;
+int width = 1920;
+int height = 1080;
 float aspect = (float)width/(float)height;
 
 unsigned int bottleIndexCount = 0;
