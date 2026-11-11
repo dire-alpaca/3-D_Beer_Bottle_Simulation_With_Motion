@@ -19,8 +19,8 @@ float random_number(float min, float max){
 return min + static_cast <float> (rand()) /( static_cast <float> (RAND_MAX/(max-min)));
 }
 
-int width = 1920;
-int height = 1080;
+int width = 2000;
+int height = 2000;
 float aspect = (float)width/(float)height;
 
 unsigned int bottleIndexCount = 0;
@@ -56,7 +56,9 @@ bool move_bottle = false;
 bool throw_bottle = false;
 bool can_throw = false;
 bool broken = false;
+bool shards_spawned = false;
 
+float hitx = 0.0f;
 float sensitivity = 0.005;
 
 float delta_x;
@@ -64,15 +66,13 @@ float delta_y;
 float vel_x = 0.0f;
 float vel_y = 0.0f;
 float throw_scale = 0.005f;
-float g = 0.001f;
-float bounce_damping = 0.7f;
-
+float g = 0.01f;
 float Floor = -2.0f;
 
 float scale_factor = 0.7f;
 float rotate_factor = (float)glfwGetTime();
 
-unsigned int shaderProgram, colourShaderProgram, pointShaderProgram, VAO_bottle, VBO_bottle, EBO_bottle, VAO_liquid, VBO_liquid, EBO_liquid, VAO_bubbles, VBO_bubbles;
+unsigned int shaderProgram, colourShaderProgram, pointShaderProgram, VAO_bottle, VBO_bottle, EBO_bottle, VAO_liquid, VBO_liquid, EBO_liquid, VAO_bubbles, VBO_bubbles, VAO_shards, VBO_shards;
 
 struct Bubble{
   float x;
@@ -84,6 +84,31 @@ struct Bubble{
 };
 
 vector<Bubble> bubbles;
+
+struct Bottle_shard{
+  float local_cx;
+  float local_cy;
+  float x;
+  float y;
+  float z;
+  float vx;
+  float vy;
+  float vz;
+  float theta;
+  float omega;
+};
+
+vector<Bottle_shard> Bottle_shards;
+
+vector<float> shard_vertices;
+
+int cols = 10;
+int rows = 10;
+
+float BX_MIN = -1.81f;
+float BX_MAX = 1.79f;
+float BY_MIN = -3.0f;
+float BY_MAX = -1.9f;
 
 // Add this function to create a point shader for bubbles
 unsigned int createPointShader(){
@@ -516,7 +541,7 @@ void getSpilledLiquidGeometry(vector<float>& vertices, vector<unsigned int>& ind
   vertices.clear();
   indices.clear();
 
-  int sectors = 32;
+  int sectors = 750;
   float puddleY = -0.6f;
   float puddleRadius = 0.2f;
   float puddleIrregularity = 0.5f;
@@ -685,6 +710,87 @@ void updateBubbles(float deltaTime){
     glBindBuffer(GL_ARRAY_BUFFER, 0);
 }
 
+void add_shard(pair<float,float> p1, pair<float,float> p2, pair<float,float> p3){
+
+  float shard_scale = 0.75f;
+  
+  float x1 = p1.first;
+  float y1 = p1.second;
+  float x2 = p2.first;
+  float y2 = p2.second;
+  float x3 = p3.first;
+  float y3 = p3.second;
+
+  float cx = (x1 + x2 + x3)/3.0f;
+  float cy = (y1 + y2 + y3)/3.0f;
+
+  auto uv = [](float px, float py, float& u, float& v){
+    u = (px - BX_MIN)/(BX_MAX - BX_MIN);
+    v = (py - BY_MIN)/(BY_MAX - BY_MIN);
+  };
+
+  float u1, v1, u2, v2, u3, v3;
+
+  uv(x1,y1,u1,v1);
+  uv(x2,y2,u2,v2);
+  uv(x3,y3,u3,v3);
+
+  shard_vertices.insert(shard_vertices.end(),{
+      (x1 - cx) * shard_scale, (y1 - cy) * shard_scale, 0.0f, u1, v1,
+      (x2 - cx) * shard_scale, (y2 - cy) * shard_scale, 0.0f, u2, v2,
+      (x3 - cx) * shard_scale, (y3 - cy) * shard_scale, 0.0f, u3, v3
+});
+
+  Bottle_shard s = {};
+
+  s.local_cx = cx;
+  s.local_cy = cy;
+  s.x = 0.0f;
+  s.y = 0.0f;
+  s.z = 0.0f;
+  s.vx = 0.0f;
+  s.vy = 0.0f;
+  s.vz = 0.0f;
+  s.theta = 0.0f;
+  s.omega = 0.0f;
+  Bottle_shards.push_back(s);
+}
+
+void initShards(){
+    vector<pair<float,float>> grid((cols + 1) * (rows + 1));
+
+    for(int i = 0; i <= rows; ++i){
+      for(int j = 0; j <= cols; ++j){
+            float fx = (float)j / cols;
+            float fy = (float)i / rows;
+
+            float px = BX_MIN + fx * (BX_MAX - BX_MIN);
+            float py = BY_MIN + fy * (BY_MAX - BY_MIN);
+
+            if(j > 0 && j < cols && i > 0 && i < rows){
+                px += random_number(-0.05f, 0.05f);
+                py += random_number(-0.05f, 0.05f);
+            }
+            grid[i * (cols + 1) + j] = {px, py};
+        }
+    }
+
+    shard_vertices.clear();
+    Bottle_shards.clear();
+
+    for(int i = 0; i < rows; ++i){
+        for(int j = 0; j < cols; ++j){
+            auto A = grid[i * (cols + 1) + j];
+            auto B = grid[i * (cols + 1) + (j + 1)];
+            auto C = grid[(i + 1) * (cols + 1) + j];
+            auto D = grid[(i + 1) * (cols + 1) + (j + 1)];
+
+            add_shard(A, B, C);
+            add_shard(B, D, C);
+        }
+    }
+}
+
 int main(){
 
   glfwInitHint(GLFW_PLATFORM, GLFW_PLATFORM_X11);
@@ -729,25 +835,47 @@ int main(){
   dx = 0;
   dy = 0.75;
   dz = 0;
-
+  
   float camera_dist = 5.0f;
   float half_h = tan(radians(45.0f)*0.5f) * camera_dist;
   float half_w = half_h * aspect;
-      
+
+  mat4 bottleModel = mat4(1.0f);
+  mat4 view = translate(mat4(1.0f),vec3(0.0f, 0.0f, -camera_dist));
+  mat4 projection = perspective(radians(45.0f), (float)width / (float)height, 0.1f, 100.0f);
+  mat4 puddleModel = translate(mat4(1.0f),vec3(dx, -1.19, dz));
+
   initBottle();
+  initShards();
+
+  glGenVertexArrays(1, &VAO_shards);
+  glGenBuffers(1, &VBO_shards);
+  glBindVertexArray(VAO_shards);
+  
+  glBindBuffer(GL_ARRAY_BUFFER, VBO_shards);
+  glBufferData(GL_ARRAY_BUFFER, shard_vertices.size() * sizeof(float), shard_vertices.data(), GL_STATIC_DRAW);
+
+  glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 5*sizeof(float), (void*)0);
+  glEnableVertexAttribArray(0);
+  glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, 5*sizeof(float), (void*)(3*sizeof(float)));
+  glEnableVertexAttribArray(1);
+
+  glBindVertexArray(0);
+ 
   initLiquid();
   initBubbles(150);
 
   stbi_set_flip_vertically_on_load(true);  
   unsigned int bottleTexture = loadTexture("beer_bottle.png");
-  unsigned int brokenBottleTexture = loadTexture("broken_beer_bottle.png");
-  
+    
   float lastFrame = 0.0f;
   double previous_mouse_x = 0.0;
   double previous_mouse_y = 0.0;
   bool first_drag_frame = false;
   bool was_pressed = false;
 
+  vec3 pivot = vec3(-0.01f, -2.45f, 0.0f);
+  
   while(!glfwWindowShouldClose(window)){
     // ... input handling ...
 
@@ -781,6 +909,7 @@ int main(){
       move_bottle = false;
       can_throw = false;
       broken = false;
+      shards_spawned = false;
     }
 
     if(is_pressed && !was_pressed){
@@ -839,67 +968,120 @@ int main(){
 }
 
     was_pressed = is_pressed;
+
+    bottleModel= mat4(1.0f);
     
     if(throw_bottle && !move_bottle){
-      vel_x += delta_x * deltaTime;
-      dx += vel_x * deltaTime;
+    vel_x += delta_x * deltaTime;
+    dx += vel_x * deltaTime;
 
-      vel_y += delta_y *deltaTime;
-      dy += vel_y * deltaTime;
+    vel_y += delta_y * deltaTime;
+    dy += vel_y * deltaTime;
 
-      rotate_factor = (float)glfwGetTime();;
-      
-      if(dx > max_dx){
-	  vel_x *= -0.99;
-	}
-	
-	if(dx < min_dx){
-	    vel_x *= -0.99;
+    rotate_factor = (float)glfwGetTime();
+
+    if(dx > max_dx){
+      vel_x *= -0.99;
+    }
+    
+    if(dx < min_dx){
+      vel_x *= -0.99;
+    }
+    
+    if(dy > max_dy){
+      vel_y *= -0.99;
+    }
+    
+    if(dy < min_dy && !shards_spawned){
+        hitx = dx;
+        // Build world matrix for spawn
+        mat4 spawnModel = mat4(1.0f);
+        spawnModel = translate(spawnModel, vec3(dx, dy, dz));
+        spawnModel = translate(spawnModel, pivot);
+        spawnModel = rotate(spawnModel, rotate_factor, vec3(0.0f, 0.0f, 1.0f));
+        spawnModel = scale(spawnModel, vec3(scale_factor));
+        spawnModel = translate(spawnModel, -pivot);
+
+        vec3 pivot_world = vec3(spawnModel * vec4(pivot, 1.0f));
+
+        for(auto& s : Bottle_shards){
+            vec4 local = vec4(s.local_cx, s.local_cy, 0.0f, 1.0f);
+            vec3 world = vec3(spawnModel * local);
+
+            s.x = world.x;
+            s.y = world.y;
+            s.z = world.z;
+
+            vec3 dir = world - pivot_world;
+            float len = length(dir);
+            if(len > 1e-4f){
+	      dir /= len;
+	    }
+	    
+            else{
+	      dir = vec3(1.0f, 0.0f, 0.0f);
+	    }
+	    
+            float speed = random_number(2.0f, 4.0f);
+            s.vx = dir.x * speed;
+            s.vy = dir.y * speed;
+            s.vz = 0.0f;
+
+            s.theta = random_number(0.0f, 6.28f);
+            s.omega = random_number(-8.0f, 8.0f);
         }
 
-	if(dy > max_dy){
-	  vel_y *= -0.99;
-	}
-	
-        if(dy < min_dy){
-	  delta_x = 0;
-	  vel_x = 0;
-	  broken = true;
-	}
+        broken = true;
+        shards_spawned = true;
     }
+}
     
     updateBubbles(deltaTime);
     updateLiquid();
 
-    vec3 pivot = vec3(-0.01f, -2.45f, 0.0f);
+    if(broken){
+    for(auto& s : Bottle_shards){
+        s.vy -= g * deltaTime * 500.0f;   
+        s.x  += s.vx * deltaTime;
+        s.y  += s.vy * deltaTime;
+        s.theta += s.omega * deltaTime;
+        s.omega *= 0.99f;
 
-    mat4 model = mat4(1.0f);
-    model = translate(model, vec3(dx, dy, dz));
-    model = translate(model, pivot);
-    model = rotate(model, rotate_factor, vec3(0.0f, 0.0f, 1.0f));
-    model = scale(model, vec3(scale_factor));
-    model = translate(model, -pivot);
+	if(s.x < BX_MIN || s.x > BX_MAX){
+	  s.vx *= -1;
+	}
 
-    // bottleModel: same structure
-    mat4 bottleModel = mat4(1.0f);
+	if(s.y > BX_MAX){
+	  s.vy *= -0.75;
+	}
+
+	if(s.y < Floor + 0.1f && fabsf(s.vy) < 0.3f){
+	  s.y = Floor + 0.1f;
+	  s.vy = 0.0f;
+	  s.vx *= 0.85f;            // friction, but keep sliding
+	  s.omega *= 0.85f;
+	}
+	
+	else if(s.y < Floor + 0.1f){
+	  s.y = Floor + 0.1f;
+	  s.vy *= -0.6f;
+	  s.vx *= 0.75f;
+	  s.omega *= 0.75f;
+	}
+    }
+    }
+
+    // bottleModel: main
+    bottleModel = mat4(1.0f);
     bottleModel = translate(bottleModel, vec3(dx, dy, dz));
     bottleModel = translate(bottleModel, pivot);
     bottleModel = rotate(bottleModel, rotate_factor, vec3(0.0f, 0.0f, 1.0f));
     bottleModel = scale(bottleModel, vec3(scale_factor));
     bottleModel = translate(bottleModel, -pivot);
-    
-    mat4 view = translate(mat4(1.0f),vec3(0.0f, 0.0f, -camera_dist));
-    
-    mat4 projection = perspective(radians(45.0f), (float)width / (float)height, 0.1f, 100.0f);
-    
-    mat4 brokenModel = mat4(1.0f);
-    brokenModel = translate(brokenModel, vec3(dx, 0.77, dz));
-    brokenModel = translate(brokenModel, pivot);
-    brokenModel = rotate(brokenModel, 0.0f, vec3(0.0f, 0.0f, 1.0f));
-    brokenModel = scale(brokenModel, vec3(0.3*scale_factor));
-    brokenModel = translate(brokenModel, -pivot);
-    
-    mat4 puddleModel = translate(mat4(1.0f),vec3(dx, -1.19, dz));
+
+    // puddleModel: static
+    puddleModel = mat4(1.0f);
+    puddleModel = translate(puddleModel, vec3(hitx, Floor + 0.6f, dz));
     
     // 1. Draw bottle
     if(!broken){
@@ -916,7 +1098,7 @@ int main(){
     // 2. Draw bubbles (Shares the exact same 'model' matrix)
     glUseProgram(pointShaderProgram);
     glEnable(GL_PROGRAM_POINT_SIZE);
-    glUniformMatrix4fv(glGetUniformLocation(pointShaderProgram, "model"), 1, GL_FALSE, value_ptr(model));
+    glUniformMatrix4fv(glGetUniformLocation(pointShaderProgram, "model"), 1, GL_FALSE, value_ptr(bottleModel));
     glUniformMatrix4fv(glGetUniformLocation(pointShaderProgram, "view"), 1, GL_FALSE, value_ptr(view));
     glUniformMatrix4fv(glGetUniformLocation(pointShaderProgram, "projection"), 1, GL_FALSE, value_ptr(projection));
     glBindVertexArray(VAO_bubbles);
@@ -925,7 +1107,7 @@ int main(){
 
         // 3. Draw liquid (Shares the exact same 'model' matrix)
     glUseProgram(colourShaderProgram);
-    glUniformMatrix4fv(glGetUniformLocation(colourShaderProgram, "model"), 1, GL_FALSE, value_ptr(model));
+    glUniformMatrix4fv(glGetUniformLocation(colourShaderProgram, "model"), 1, GL_FALSE, value_ptr(bottleModel));
     glUniformMatrix4fv(glGetUniformLocation(colourShaderProgram, "view"), 1, GL_FALSE, value_ptr(view));
     glUniformMatrix4fv(glGetUniformLocation(colourShaderProgram, "projection"), 1, GL_FALSE, value_ptr(projection));
     glUniform4f(glGetUniformLocation(colourShaderProgram, "liquidColor"), 0.9f, 0.5f, 0.0f, 0.8f);
@@ -936,18 +1118,23 @@ int main(){
     glDepthMask(GL_TRUE);
     }
     
-    if(broken){
-      // 1. Draw broken bottle
-    glUseProgram(shaderProgram);
-    glUniform1i(glGetUniformLocation(shaderProgram, "ourTexture"), 0);
-    glUniformMatrix4fv(glGetUniformLocation(shaderProgram, "model"), 1, GL_FALSE, value_ptr(brokenModel));  
-    glUniformMatrix4fv(glGetUniformLocation(shaderProgram, "view"), 1, GL_FALSE, value_ptr(view));
-    glUniformMatrix4fv(glGetUniformLocation(shaderProgram, "projection"), 1, GL_FALSE, value_ptr(projection));
-    glActiveTexture(GL_TEXTURE0);
-    glBindTexture(GL_TEXTURE_2D, brokenBottleTexture);
-    glBindVertexArray(VAO_bottle);
-    glDrawElements(GL_TRIANGLES, bottleIndexCount, GL_UNSIGNED_INT, 0);
-
+    if(broken){ 
+      // 1. Draw broken shards
+      glUseProgram(shaderProgram);
+      glUniform1i(glGetUniformLocation(shaderProgram, "ourTexture"), 0);
+      glUniformMatrix4fv(glGetUniformLocation(shaderProgram, "view"), 1, GL_FALSE, value_ptr(view));
+      glUniformMatrix4fv(glGetUniformLocation(shaderProgram, "projection"), 1, GL_FALSE, value_ptr(projection));
+      glActiveTexture(GL_TEXTURE0);
+      
+      glBindVertexArray(VAO_shards);
+      for(int i = 0; i < (int)Bottle_shards.size(); i++){
+	const auto& s = Bottle_shards[i];
+	mat4 m = mat4(1.0f);
+	m = translate(m, vec3(s.x, s.y, s.z));
+	m = rotate(m, s.theta, vec3(0.0f, 0.0f, 1.0f));
+	glUniformMatrix4fv(glGetUniformLocation(shaderProgram, "model"), 1, GL_FALSE, value_ptr(m));
+	glDrawArrays(GL_TRIANGLES, i * 3, 3);
+      }
         // 2. Draw liquid (Shares the exact same ' broken model' matrix)
     glUseProgram(colourShaderProgram);
     glUniformMatrix4fv(glGetUniformLocation(colourShaderProgram, "model"), 1, GL_FALSE, value_ptr(puddleModel));
